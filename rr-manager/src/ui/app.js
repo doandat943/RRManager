@@ -738,7 +738,6 @@
     function upgradeBlockContent(data) {
         if (isUnsupportedBootloader(data)) {
             return {
-                eyebrow: t('common.boot'),
                 title: t('boot.unsupportedTitle'),
                 body: t('boot.unsupportedBody'),
                 statusItems: [
@@ -750,7 +749,6 @@
 
         if (isBootloaderUnavailable(data)) {
             return {
-                eyebrow: t('common.boot'),
                 title: t('boot.unavailableTitle'),
                 body: t('boot.unavailableBody'),
                 statusItems: [
@@ -761,7 +759,6 @@
         }
 
         return {
-            eyebrow: t('update.stateEyebrow'),
             title: t('update.unavailableTitle'),
             body: t('update.unavailableBody'),
             statusItems: [
@@ -784,7 +781,6 @@
         mask.hidden = true;
         mask.innerHTML =
             '<div class="upgradeBlockCard">' +
-            '<p class="sectionEyebrow" id="upgradeBlockEyebrow"></p>' +
             '<h2 id="upgradeBlockTitle"></h2>' +
             '<p class="upgradeBlockBody" id="upgradeBlockBody"></p>' +
             '<div class="heroStatus inlineHeroStatus" id="upgradeBlockStatus"></div>' +
@@ -814,7 +810,6 @@
         clearLoadingNow();
         content = upgradeBlockContent(data);
 
-        $('upgradeBlockEyebrow').textContent = content.eyebrow;
         $('upgradeBlockTitle').textContent = content.title;
         $('upgradeBlockBody').textContent = content.body;
         $('upgradeBlockStatus').innerHTML = renderStatusLines(content.statusItems);
@@ -1225,7 +1220,7 @@
         var cfg = updateVariantConfig(kind);
 
         updateReleaseState(kind, data);
-        renderReleaseBox(cfg.releaseBoxId, data);
+        renderUpdateReleaseBox(cfg.releaseBoxId, data);
         syncUpdateVariantButtons(kind, state.updateRunning);
     }
 
@@ -1247,7 +1242,7 @@
         }
     }
 
-    function renderReleaseBox(elementId, data) {
+    function renderUpdateReleaseBox(elementId, data) {
         var target = $(elementId);
         var releaseLogs = data && data.releaseLogs ? String(data.releaseLogs) : '';
 
@@ -1327,13 +1322,13 @@
         });
     }
 
-    function refreshLog(options) {
+    function refreshUpdateLog(options) {
         return requestWithPageLoading('log', options, function (data) {
             $('logView').textContent = data.log || t('update.noLog');
             return data;
         }).catch(function (error) {
             if (retryOnBusyError('log', t('update.loadingLog'), function () {
-                refreshLog({ silent: true });
+                refreshUpdateLog({ silent: true });
             }, error)) {
                 return;
             }
@@ -1369,7 +1364,7 @@
         request(action, requestOptions).then(function (response) {
             setToast(response.message || t(successKey), 'success');
             loadOverview();
-            refreshLog(silentLogRefresh ? { silent: true } : undefined);
+            refreshUpdateLog(silentLogRefresh ? { silent: true } : undefined);
         }).catch(function (error) {
             if (isBusyError(error)) {
                 setBusyLoading(t('update.loadingState'));
@@ -1403,7 +1398,7 @@
             loadUpdateReleaseByKind('rr');
         });
         $('refreshLog').addEventListener('click', function () {
-            refreshLog();
+            refreshUpdateLog();
         });
         $(updateVariantConfig('rrm').onlineButtonId).addEventListener('click', function () {
             startUpdateOnline('rrm');
@@ -1424,11 +1419,11 @@
                 loadUpdateReleaseByKind('rr', { silent: true });
             }
         });
-        refreshLog({ silent: true });
+        refreshUpdateLog({ silent: true });
 
         (function pollUpdate() {
             loadOverview({ silent: true });
-            refreshLog({ silent: true });
+            refreshUpdateLog({ silent: true });
             setTimeout(pollUpdate, state.updateRunning ? 1000 : 12000);
         })();
     }
@@ -1630,7 +1625,7 @@
         })(false);
     }
 
-    function loadFile(options) {
+    function loadConfigFile(options) {
         var requestOptions;
         var key;
 
@@ -1648,7 +1643,7 @@
         requestOptions.data = { file: state.currentFile };
         return requestWithPageLoading('read', requestOptions, function (data) {
             if (retryOnBusyResult('file', t('common.loading'), function () {
-                loadFile({ silent: true });
+                loadConfigFile({ silent: true });
             }, data)) {
                 return data;
             }
@@ -1661,7 +1656,7 @@
             return data;
         }).catch(function (error) {
             if (retryOnBusyError('file', t('common.loading'), function () {
-                loadFile({ silent: true });
+                loadConfigFile({ silent: true });
             }, error)) {
                 return;
             }
@@ -1675,7 +1670,7 @@
         });
     }
 
-    function saveFile() {
+    function saveConfigFile() {
         if (!state.configLoaded) {
             setToast(t('common.readFailed'), 'error');
             return;
@@ -1690,7 +1685,7 @@
             showRebootBannerNow(data.message || t('common.saved'));
             setToast(withRebootHint(data.message || t('common.saved')), 'success');
             loadOverview({ silent: true });
-            loadFile();
+            loadConfigFile();
         }).catch(function (error) {
             if (isBusyError(error)) {
                 setBusyLoading(t('common.loading'));
@@ -1706,9 +1701,9 @@
         $('saveFile').disabled = true;
         initEditorLineNumbers();
         $('reloadFile').addEventListener('click', function () {
-            loadFile();
+            loadConfigFile();
         });
-        $('saveFile').addEventListener('click', saveFile);
+        $('saveFile').addEventListener('click', saveConfigFile);
 
         (function watchAvailability(initialized) {
             request('overview', { silent: true }).then(function (data) {
@@ -1717,7 +1712,7 @@
                 var blocked = syncUpgradeBlocked(data);
 
                 if (!blocked && (!initialized || wasBlocked)) {
-                    loadFile(wasBlocked ? { silent: true } : undefined);
+                    loadConfigFile(wasBlocked ? { silent: true } : undefined);
                 }
 
                 setTimeout(function () {

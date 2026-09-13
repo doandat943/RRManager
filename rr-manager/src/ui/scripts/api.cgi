@@ -738,8 +738,8 @@ save_modules_action() {
 }
 
 packages_action() {
-    first=1
-    payload='{"ok":true,"packages":['
+    pkg_first=1
+    packages_json='{"ok":true,"packages":['
 
     for pkg_dir in /var/packages/*; do
         [ -d "${pkg_dir}" ] || continue
@@ -747,23 +747,23 @@ packages_action() {
         priv_file="${pkg_dir}/conf/privilege"
         [ -f "${priv_file}" ] || continue
 
-        run_as="$(sed -n '/[[:space:]]*"defaults"/, /"run-as"/s/.*"run-as"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${priv_file}" | sed -n '1{s/\r$//;p}')"
-        [ -n "${run_as}" ] || run_as='package'
+        run_as_value="$(sed -n '/[[:space:]]*"defaults"/, /"run-as"/s/.*"run-as"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${priv_file}" | sed -n '1{s/\r$//;p}')"
+        [ -n "${run_as_value}" ] || run_as_value='package'
 
-        if [ "${first}" -eq 1 ]; then
-            first=0
+        if [ "${pkg_first}" -eq 1 ]; then
+            pkg_first=0
         else
-            payload="${payload},"
+            packages_json="${packages_json},"
         fi
-        payload="${payload}{\"name\":$(json_quote "${pkg_name}"),\"runAs\":$(json_quote "${run_as}")}"
+        packages_json="${packages_json}{\"name\":$(json_quote "${pkg_name}"),\"runAs\":$(json_quote "${run_as_value}")}"
     done
 
-    send_ok "${payload}]}"
+    send_ok "${packages_json}]}"
 }
 
 set_package_runas_action() {
     pkg_name="$(get_param name)"
-    run_as="$(get_param runas)"
+    run_as_value="$(get_param runas)"
     priv_file="/var/packages/${pkg_name}/conf/privilege"
 
     case "${pkg_name}" in
@@ -773,7 +773,7 @@ set_package_runas_action() {
             ;;
     esac
 
-    case "${run_as}" in
+    case "${run_as_value}" in
         root|package|system) ;;
         *)
             send_error 400 "Invalid run-as value."
@@ -786,12 +786,12 @@ set_package_runas_action() {
         return
     fi
 
-    if ! rrm_do sed -i '/[[:space:]]*"defaults"/,/[[:space:]]*"run-as"/s/"run-as"[[:space:]]*:[[:space:]]*"[^"]*"/"run-as": "'"${run_as}"'"/' "${priv_file}" >/dev/null 2>&1; then
+    if ! rrm_do sed -i '/[[:space:]]*"defaults"/,/[[:space:]]*"run-as"/s/"run-as"[[:space:]]*:[[:space:]]*"[^"]*"/"run-as": "'"${run_as_value}"'"/' "${priv_file}" >/dev/null 2>&1; then
         send_error 500 "Failed to update privilege file."
         return
     fi
 
-    send_ok "{\"ok\":true,\"message\":$(json_quote "run-as set to ${run_as} for ${pkg_name}.")}"
+    send_ok "{\"ok\":true,\"message\":$(json_quote "run-as set to ${run_as_value} for ${pkg_name}.")}"
 }
 
 BODY="$(read_body)"

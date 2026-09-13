@@ -8,6 +8,7 @@ override ARCH = noarch
 MAINTAINER = RROrg
 DESCRIPTION = Manage RR bootloader configuration and RR upgrades directly from DSM.
 DISPLAY_NAME = RR Manager
+
 HOMEPAGE = https://github.com/RROrg/rr
 LICENSE = GPLv3
 

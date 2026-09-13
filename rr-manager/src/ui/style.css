@@ -231,14 +231,6 @@ body.rrm::before {
   min-width: 0;
 }
 
-.eyebrow {
-  margin: 0 0 4px;
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  opacity: 0.76;
-}
-
 .hero h1 {
   margin: 0;
   font-family: "Avenir Next Condensed", "Franklin Gothic Medium", "PingFang SC", sans-serif;
@@ -565,14 +557,6 @@ body.rrm[data-page='tools'] .lead {
   line-height: 1.1;
 }
 
-.sectionEyebrow {
-  margin: 0 0 4px;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--brand);
-}
-
 .panelIntro {
   margin: 0 0 12px;
   max-width: 68ch;
@@ -627,11 +611,6 @@ body.rrm[data-page='tools'] .lead {
 
 .compactFlow .panelHead h2 {
   font-size: 16px;
-}
-
-.compactFlow .sectionEyebrow {
-  margin-bottom: 1px;
-  font-size: 9px;
 }
 
 .compactFlow .heroStatus {
