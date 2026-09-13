@@ -737,6 +737,63 @@ save_modules_action() {
     send_ok "{\"ok\":true,\"message\":$(json_quote "Modules selection saved successfully.")}"
 }
 
+packages_action() {
+    first=1
+    payload='{"ok":true,"packages":['
+
+    for pkg_dir in /var/packages/*; do
+        [ -d "${pkg_dir}" ] || continue
+        pkg_name="$(basename "${pkg_dir}")"
+        priv_file="${pkg_dir}/conf/privilege"
+        [ -f "${priv_file}" ] || continue
+
+        run_as="$(sed -n '/[[:space:]]*"defaults"/, /"run-as"/s/.*"run-as"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${priv_file}" | sed -n '1{s/\r$//;p}')"
+        [ -n "${run_as}" ] || run_as='package'
+
+        if [ "${first}" -eq 1 ]; then
+            first=0
+        else
+            payload="${payload},"
+        fi
+        payload="${payload}{\"name\":$(json_quote "${pkg_name}"),\"runAs\":$(json_quote "${run_as}")}"
+    done
+
+    send_ok "${payload}]}"
+}
+
+set_package_runas_action() {
+    pkg_name="$(get_param name)"
+    run_as="$(get_param runas)"
+    priv_file="/var/packages/${pkg_name}/conf/privilege"
+
+    case "${pkg_name}" in
+        */*|*..*|''|*[!A-Za-z0-9_.-]*)
+            send_error 400 "Invalid package name."
+            return
+            ;;
+    esac
+
+    case "${run_as}" in
+        root|package|system) ;;
+        *)
+            send_error 400 "Invalid run-as value."
+            return
+            ;;
+    esac
+
+    if [ ! -f "${priv_file}" ]; then
+        send_error 404 "Package privilege file not found."
+        return
+    fi
+
+    if ! rrm_do sed -i '/[[:space:]]*"defaults"/,/[[:space:]]*"run-as"/s/"run-as"[[:space:]]*:[[:space:]]*"[^"]*"/"run-as": "'"${run_as}"'"/' "${priv_file}" >/dev/null 2>&1; then
+        send_error 500 "Failed to update privilege file."
+        return
+    fi
+
+    send_ok "{\"ok\":true,\"message\":$(json_quote "run-as set to ${run_as} for ${pkg_name}.")}"
+}
+
 BODY="$(read_body)"
 action="$(get_param action)"
 
@@ -755,6 +812,8 @@ case "${action}" in
     start-rrm-update-online) rrm_update_online_action ;;
     start-rrm-update-local) rrm_update_local_action ;;
     log) log_action ;;
+    packages) packages_action ;;
+    set-package-runas) set_package_runas_action ;;
     *)
         send_error 400 "Unsupported action."
         ;;

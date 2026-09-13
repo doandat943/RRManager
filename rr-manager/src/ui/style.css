@@ -547,6 +547,10 @@ body.rrm.isUpgradeBlocked .subPage {
   min-width: 0;
 }
 
+body.rrm[data-page='tools'] .lead {
+  color: var(--muted);
+}
+
 .panelHead {
   display: flex;
   gap: 12px;
@@ -1116,6 +1120,10 @@ body.rrm textarea::-webkit-scrollbar-thumb:hover {
   width: 86px;
 }
 
+.narrowTable .colRunAs {
+  width: 160px;
+}
+
 .listTable .colName {
   width: 190px;
 }
@@ -1149,7 +1157,11 @@ body.rrm textarea::-webkit-scrollbar-thumb:hover {
 
 .narrowTable th:last-child,
 .narrowTable td:last-child {
-  text-align: center;
+  text-align: right;
+}
+
+.narrowTable td:last-child select {
+  margin-left: auto;
 }
 
 .listTable thead {
@@ -1171,6 +1183,22 @@ body.rrm textarea::-webkit-scrollbar-thumb:hover {
 
 .listTable input[type='checkbox'] {
   transform: scale(1.1);
+}
+
+.listTable select {
+  min-width: 120px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.listTable select:focus {
+  border-color: rgba(31, 106, 83, 0.34);
+  box-shadow: 0 0 0 3px rgba(31, 106, 83, 0.1);
+  outline: none;
 }
 
 #logView {

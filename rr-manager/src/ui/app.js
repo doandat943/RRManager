@@ -13,17 +13,17 @@
         currentFile: 'user-config',
         configLoaded: false,
         items: [],
+        packages: [],
         retryTimers: {},
         locale: 'en',
         baseMessages: null,
         messages: null,
         loading: {
             pending: 0,
-            visible: false,
-            timer: null,
-            holdTimer: null,
-            freezeUntil: 0,
-            failSafeTimer: null
+            shown: false,
+            showTimer: null,
+            hideTimer: null,
+            freezeUntil: 0
         }
     };
     var LOCALE_DIRS = {
@@ -653,77 +653,72 @@
         mask.hidden = !visible;
         mask.style.display = visible ? 'flex' : 'none';
         document.body.classList.toggle('isLoading', visible);
-        state.loading.visible = visible;
+        state.loading.shown = visible;
     }
 
     function clearLoadingNow() {
-        state.loading.pending = 0;
-        state.loading.freezeUntil = 0;
-        clearTimeout(state.loading.timer);
-        clearTimeout(state.loading.holdTimer);
-        clearTimeout(state.loading.failSafeTimer);
+        var loading = state.loading;
+
+        clearTimeout(loading.showTimer);
+        clearTimeout(loading.hideTimer);
+        loading.pending = 0;
+        loading.freezeUntil = 0;
         setLoadingVisible(false, t('common.loading'));
     }
 
     function scheduleLoadingHide() {
-        clearTimeout(state.loading.holdTimer);
+        var loading = state.loading;
+        var remaining;
 
-        if (state.loading.pending > 0) {
+        clearTimeout(loading.hideTimer);
+
+        if (loading.pending > 0) {
             return;
         }
 
-        if (state.loading.freezeUntil > Date.now()) {
-            state.loading.holdTimer = setTimeout(function () {
-                scheduleLoadingHide();
-            }, state.loading.freezeUntil - Date.now());
+        remaining = loading.freezeUntil - Date.now();
+        if (remaining > 0) {
+            loading.hideTimer = setTimeout(scheduleLoadingHide, remaining);
             return;
         }
 
-        state.loading.freezeUntil = 0;
+        loading.freezeUntil = 0;
         setLoadingVisible(false, t('common.loading'));
     }
 
     function beginLoading(message) {
-        state.loading.pending += 1;
-        clearTimeout(state.loading.timer);
-        clearTimeout(state.loading.holdTimer);
-        clearTimeout(state.loading.failSafeTimer);
+        var loading = state.loading;
 
-        state.loading.failSafeTimer = setTimeout(function () {
-            clearLoadingNow();
-        }, 5000);
+        loading.pending += 1;
+        clearTimeout(loading.showTimer);
 
-        if (state.loading.visible) {
+        if (loading.shown) {
             setLoadingVisible(true, message || t('common.loading'));
             return;
         }
 
-        state.loading.timer = setTimeout(function () {
-            if (state.loading.pending > 0) {
+        loading.showTimer = setTimeout(function () {
+            if (loading.pending > 0) {
                 setLoadingVisible(true, message || t('common.loading'));
             }
         }, 160);
     }
 
     function endLoading() {
-        if (state.loading.pending > 0) {
-            state.loading.pending -= 1;
-        }
+        var loading = state.loading;
 
-        clearTimeout(state.loading.timer);
-        if (state.loading.pending === 0) {
-            clearTimeout(state.loading.failSafeTimer);
+        if (loading.pending > 0) {
+            loading.pending -= 1;
         }
+        clearTimeout(loading.showTimer);
         scheduleLoadingHide();
     }
 
     function freezeLoading(message, duration) {
-        state.loading.freezeUntil = Date.now() + (duration || 1200);
-        clearTimeout(state.loading.timer);
-        clearTimeout(state.loading.failSafeTimer);
-        state.loading.failSafeTimer = setTimeout(function () {
-            clearLoadingNow();
-        }, (duration || 1200) + 2000);
+        var loading = state.loading;
+
+        loading.freezeUntil = Date.now() + (duration || 1200);
+        clearTimeout(loading.showTimer);
         setLoadingVisible(true, message || t('common.loading'));
         scheduleLoadingHide();
     }
@@ -932,13 +927,13 @@
         }
 
         return request(action, requestOptions).then(function (data) {
-            return Promise.resolve(onSuccess ? onSuccess(data) : data).then(function (result) {
-                if (!silent) {
-                    return waitForNextPaint().then(function () {
-                        endLoading();
-                        return result;
-                    });
-                }
+            var result = onSuccess ? onSuccess(data) : data;
+
+            if (silent) {
+                return result;
+            }
+            return waitForNextPaint().then(function () {
+                endLoading();
                 return result;
             });
         }, function (error) {
@@ -1056,6 +1051,30 @@
         freezeLoading(loadingMessage, 1500);
     }
 
+    // 忙碌兜底统一处理：显示忙碌蒙层并调度一次静默重试。
+    function busyRetry(key, loadingMessage, retry) {
+        setBusyLoading(loadingMessage);
+        scheduleBusyRetry(key, retry);
+    }
+
+    // 接口返回 busy 兜底结果时，进入重试；否则返回 false 由调用方继续处理。
+    function retryOnBusyResult(key, loadingMessage, retry, data) {
+        if (!isRetryBusyResult(data)) {
+            return false;
+        }
+        busyRetry(key, loadingMessage, retry);
+        return true;
+    }
+
+    // 请求因 busy 报错时，进入重试；否则返回 false 由调用方继续处理错误。
+    function retryOnBusyError(key, loadingMessage, retry, error) {
+        if (!isBusyError(error)) {
+            return false;
+        }
+        busyRetry(key, loadingMessage, retry);
+        return true;
+    }
+
     function initShell() {
         var frame = $('contentFrame');
         var buttons = document.querySelectorAll('#subnav button[data-page-target]');
@@ -1131,24 +1150,8 @@
 
         if (syncUpgradeBlocked(data)) {
             if (page === 'update') {
-                if ($('startRrmLocalUpdate')) {
-                    $('startRrmLocalUpdate').disabled = true;
-                }
-                if ($('startRrmOnlineUpdate')) {
-                    $('startRrmOnlineUpdate').disabled = true;
-                }
-                if ($('checkRrmRelease')) {
-                    $('checkRrmRelease').disabled = true;
-                }
-                if ($('startRrLocalUpdate')) {
-                    $('startRrLocalUpdate').disabled = true;
-                }
-                if ($('startRrOnlineUpdate')) {
-                    $('startRrOnlineUpdate').disabled = true;
-                }
-                if ($('checkRrRelease')) {
-                    $('checkRrRelease').disabled = true;
-                }
+                syncUpdateVariantButtons('rrm', true);
+                syncUpdateVariantButtons('rr', true);
             }
             return;
         }
@@ -1274,11 +1277,9 @@
             renderOverview(data);
             return data;
         }).catch(function (error) {
-            if (isBusyError(error)) {
-                setBusyLoading(t(page === 'update' ? 'update.loadingState' : 'update.loadingBoot'));
-                scheduleBusyRetry('overview', function () {
-                    loadOverview({ silent: true });
-                });
+            if (retryOnBusyError('overview', t(page === 'update' ? 'update.loadingState' : 'update.loadingBoot'), function () {
+                loadOverview({ silent: true });
+            }, error)) {
                 return;
             }
             setToast(error.message, 'error');
@@ -1294,6 +1295,10 @@
     }
 
     function loadUpdateRelease(action, loadingKey, options, onLoad) {
+        var retry = function () {
+            loadUpdateRelease(action, loadingKey, { silent: true }, onLoad);
+        };
+
         if (state.updateRunning || state.upgradeBlocked) {
             clearBusyRetry(action);
             return Promise.resolve();
@@ -1303,26 +1308,19 @@
             if (isRetryBusyResult(data)) {
                 if (state.updateRunning) {
                     clearBusyRetry(action);
-                    return data;
+                } else {
+                    busyRetry(action, t(loadingKey), retry);
                 }
-                setBusyLoading(t(loadingKey));
-                scheduleBusyRetry(action, function () {
-                    loadUpdateRelease(action, loadingKey, { silent: true }, onLoad);
-                });
                 return data;
             }
             onLoad(data);
             return data;
         }).catch(function (error) {
-            if (isBusyError(error)) {
-                if (state.updateRunning) {
-                    clearBusyRetry(action);
-                    return;
-                }
-                setBusyLoading(t(loadingKey));
-                scheduleBusyRetry(action, function () {
-                    loadUpdateRelease(action, loadingKey, { silent: true }, onLoad);
-                });
+            if (state.updateRunning) {
+                clearBusyRetry(action);
+                return;
+            }
+            if (retryOnBusyError(action, t(loadingKey), retry, error)) {
                 return;
             }
             setToast(error.message, 'error');
@@ -1334,11 +1332,9 @@
             $('logView').textContent = data.log || t('update.noLog');
             return data;
         }).catch(function (error) {
-            if (isBusyError(error)) {
-                setBusyLoading(t('update.loadingLog'));
-                scheduleBusyRetry('log', function () {
-                    refreshLog({ silent: true });
-                });
+            if (retryOnBusyError('log', t('update.loadingLog'), function () {
+                refreshLog({ silent: true });
+            }, error)) {
                 return;
             }
             setToast(error.message, 'error');
@@ -1484,22 +1480,18 @@
     function loadItems(options) {
         var cfg = itemPageConfig();
         return requestWithPageLoading(cfg.loadAction, options, function (data) {
-            if (isRetryBusyResult(data)) {
-                setBusyLoading(t('common.loading'));
-                scheduleBusyRetry('items', function () {
-                    loadItems({ silent: true });
-                });
+            if (retryOnBusyResult('items', t('common.loading'), function () {
+                loadItems({ silent: true });
+            }, data)) {
                 return data;
             }
             state.items = data.items || [];
             renderItems();
             return data;
         }).catch(function (error) {
-            if (isBusyError(error)) {
-                setBusyLoading(t('common.loading'));
-                scheduleBusyRetry('items', function () {
-                    loadItems({ silent: true });
-                });
+            if (retryOnBusyError('items', t('common.loading'), function () {
+                loadItems({ silent: true });
+            }, error)) {
                 return;
             }
             setToast(error.message, 'error');
@@ -1625,11 +1617,9 @@
                     watchAvailability(true);
                 }, blocked ? 4000 : 12000);
             }).catch(function (error) {
-                if (isBusyError(error)) {
-                    setBusyLoading(t('update.loadingState'));
-                    scheduleBusyRetry('items-availability', function () {
-                        watchAvailability(true);
-                    });
+                if (retryOnBusyError('items-availability', t('update.loadingState'), function () {
+                    watchAvailability(true);
+                }, error)) {
                     return;
                 }
                 setToast(error.message, 'error');
@@ -1657,11 +1647,9 @@
         }
         requestOptions.data = { file: state.currentFile };
         return requestWithPageLoading('read', requestOptions, function (data) {
-            if (isRetryBusyResult(data)) {
-                setBusyLoading(t('common.loading'));
-                scheduleBusyRetry('file', function () {
-                    loadFile({ silent: true });
-                });
+            if (retryOnBusyResult('file', t('common.loading'), function () {
+                loadFile({ silent: true });
+            }, data)) {
                 return data;
             }
             state.configLoaded = true;
@@ -1672,11 +1660,9 @@
             updateEditorLineNumbers();
             return data;
         }).catch(function (error) {
-            if (isBusyError(error)) {
-                setBusyLoading(t('common.loading'));
-                scheduleBusyRetry('file', function () {
-                    loadFile({ silent: true });
-                });
+            if (retryOnBusyError('file', t('common.loading'), function () {
+                loadFile({ silent: true });
+            }, error)) {
                 return;
             }
             state.configLoaded = false;
@@ -1738,11 +1724,9 @@
                     watchAvailability(true);
                 }, blocked ? 4000 : 12000);
             }).catch(function (error) {
-                if (isBusyError(error)) {
-                    setBusyLoading(t('update.loadingState'));
-                    scheduleBusyRetry('config-availability', function () {
-                        watchAvailability(true);
-                    });
+                if (retryOnBusyError('config-availability', t('update.loadingState'), function () {
+                    watchAvailability(true);
+                }, error)) {
                     return;
                 }
                 setToast(error.message, 'error');
@@ -1751,6 +1735,91 @@
                 }, 12000);
             });
         })(false);
+    }
+
+    function renderPackages() {
+        var body = $('packagesBody');
+        var filter;
+        var rows;
+
+        if (!body) {
+            return;
+        }
+
+        filter = $('searchInput').value.trim().toLowerCase();
+        rows = state.packages.filter(function (pkg) {
+            return !filter || pkg.name.toLowerCase().indexOf(filter) !== -1;
+        });
+
+        if (!rows.length) {
+            body.innerHTML = '<tr><td colspan="2">' + escapeHtml(t('common.noItems')) + '</td></tr>';
+            return;
+        }
+
+        body.innerHTML = rows.map(function (pkg) {
+            return '<tr>' +
+                '<td>' + escapeHtml(pkg.name) + '</td>' +
+                '<td><select data-name="' + escapeHtml(pkg.name) + '">' +
+                '<option value="package"' + (pkg.runAs === 'package' ? ' selected' : '') + '>' + escapeHtml(t('tools.runAsPackage')) + '</option>' +
+                '<option value="system"' + (pkg.runAs === 'system' ? ' selected' : '') + '>' + escapeHtml(t('tools.runAsSystem')) + '</option>' +
+                '<option value="root"' + (pkg.runAs === 'root' ? ' selected' : '') + '>' + escapeHtml(t('tools.runAsRoot')) + '</option>' +
+                '</select></td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function setPackageRunAs(name, runAs) {
+        request('set-package-runas', {
+            method: 'POST',
+            data: { name: name, runas: runAs }
+        }).then(function (data) {
+            var i;
+            setToast(data.message || t('tools.runAsUpdated', { name: name, runAs: runAs }), 'success');
+            for (i = 0; i < state.packages.length; i += 1) {
+                if (state.packages[i].name === name) {
+                    state.packages[i].runAs = runAs;
+                    break;
+                }
+            }
+            renderPackages();
+        }).catch(function (error) {
+            if (isBusyError(error)) {
+                setBusyLoading(t('common.loading'));
+                return;
+            }
+            setToast(error.message, 'error');
+            renderPackages();
+        });
+    }
+
+    function loadPackages(options) {
+        return requestWithPageLoading('packages', options, function (data) {
+            state.packages = (data && data.packages) || [];
+            renderPackages();
+            return data;
+        }).catch(function (error) {
+            if (retryOnBusyError('packages', t('common.loading'), function () {
+                loadPackages({ silent: true });
+            }, error)) {
+                return;
+            }
+            setToast(error.message, 'error');
+        });
+    }
+
+    function initTools() {
+        state.packages = [];
+        $('refreshPackages').addEventListener('click', function () {
+            loadPackages();
+        });
+        $('searchInput').addEventListener('input', renderPackages);
+        $('packagesBody').addEventListener('change', function (event) {
+            var select = event.target;
+            if (select && select.tagName === 'SELECT') {
+                setPackageRunAs(select.getAttribute('data-name'), select.value);
+            }
+        });
+        loadPackages();
     }
 
     function startPage() {
@@ -1766,6 +1835,8 @@
             initItemsPage();
         } else if (page === 'config') {
             initConfig();
+        } else if (page === 'tools') {
+            initTools();
         }
     }
 
